@@ -21,7 +21,7 @@ import numpy as np
 import hyperparameters as hp
 from helpers import visualize_filters, make_filter_video, make_filter_callback
 
-BANNER_ID = 000000000 # <- replace with your Banner ID; drop the 'B' prefix and any leading 0s.
+BANNER_ID = 1904221 # <- replace with your Banner ID; drop the 'B' prefix and any leading 0s.
 torch.manual_seed(BANNER_ID)
 np.random.seed(BANNER_ID)
 
@@ -100,7 +100,7 @@ def train_loop(model, train_loader, optimizer, loss, epochs,
     train_accs = []
     val_accs = []
 
-    # TODO: Implement the training loop. For each epoch:
+    # For each epoch:
     #     a. Set model to training mode.
 
     #     b. Loop over batches: move to device, forward pass, compute loss,
@@ -115,6 +115,52 @@ def train_loop(model, train_loader, optimizer, loss, epochs,
 
     #     e. If on_epoch_end is not None, call it at the end of an epoch: 
     #         on_epoch_end(epoch, model)
+
+    for epoch in range(epochs):
+        model.train()
+        correct = 0
+        total = 0
+        running_loss = 0.0
+
+        for x, y in train_loader:
+            x = x.to(device)
+            y = y.to(device)
+
+            optimizer.zero_grad()
+            logits = model(x)
+            batch_loss = loss(logits, y)
+            batch_loss.backward()
+            optimizer.step()
+
+            running_loss += batch_loss.item() * x.size(0)
+            preds = logits.argmax(dim=1)
+            correct += (preds == y).sum().item()
+            total += y.size(0)
+
+        train_acc = correct / total if total > 0 else 0.0
+        avg_loss = running_loss / total if total > 0 else 0.0
+        train_accs.append(train_acc)
+
+        if val_loader is not None:
+            model.eval()
+            val_correct = 0
+            val_total = 0
+            with torch.no_grad():
+                for x, y in val_loader:
+                    x = x.to(device)
+                    y = y.to(device)
+                    logits = model(x)
+                    preds = logits.argmax(dim=1)
+                    val_correct += (preds == y).sum().item()
+                    val_total += y.size(0)
+            val_acc = val_correct / val_total if val_total > 0 else 0.0
+            val_accs.append(val_acc)
+            print(f"[{tasklabel}] Epoch {epoch+1}/{epochs}  Train: {train_acc:.3f}  Loss: {avg_loss:.4f}  Val: {val_acc:.3f}")
+        else:
+            print(f"[{tasklabel}] Epoch {epoch+1}/{epochs}  Train: {train_acc:.3f}  Loss: {avg_loss:.4f}")
+
+        if on_epoch_end is not None:
+            on_epoch_end(epoch, model)
 
     return train_accs, val_accs
 
@@ -133,7 +179,7 @@ class SceneClassifier(nn.Module):
     def __init__(self, num_classes=15):
         super().__init__()
 
-        # TODO: Design a CNN with these requirements:
+        # Design a CNN with these requirements:
         #     - self.encoder: nn.Module — the convolutional feature extractor
         #                     This should end with AdaptiveAvgPool2d(1)
         #                     so it works at any input resolution
@@ -142,11 +188,37 @@ class SceneClassifier(nn.Module):
         #     - self.encoder_channels: int — number of output channels from encoder
         #     - forward(x) returns logits of shape (batch_size, num_classes)
 
-        raise NotImplementedError
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=5, padding=2),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1)
+        )
+        self.encoder_channels = 256
+        self.head = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.encoder_channels, num_classes)
+        )
 
     def forward(self, x):
-        # TODO
-        raise NotImplementedError
+        x = self.encoder(x)
+        x = self.head(x)
+        return x
 
 
 # Part C: Train your SceneClassifier end-to-end
@@ -159,7 +231,6 @@ def t0_endtoend(classify_15scenes_data, device, approaches):
     # Reproducible initialization — do not remove
     torch.manual_seed(BANNER_ID)
 
-    # TODO:
     #     1. Create a SceneClassifier and move it to device.
     #     2. Create an optimizer and a loss.
     #     3. Call train_loop with hp.ENDTOEND_EPOCHS epochs,
@@ -168,7 +239,24 @@ def t0_endtoend(classify_15scenes_data, device, approaches):
     #     5. Save the val accuracy list to approaches['endtoend'].curve_val
     #     6. Save the train accuracy list to approaches['endtoend'].curve_train
 
-    pass
+    classifier = SceneClassifier(num_classes=15).to(device)
+    optimizer = torch.optim.Adam(classifier.parameters(), lr=hp.ENDTOEND_LR)
+    loss = nn.CrossEntropyLoss()
+
+    train_accs, val_accs = train_loop(
+        classifier,
+        classify_15scenes_data.train_loader,
+        optimizer,
+        loss,
+        hp.ENDTOEND_EPOCHS,
+        device,
+        val_loader=classify_15scenes_data.val_loader,
+        tasklabel="t0_endtoend"
+    )
+
+    torch.save(classifier.state_dict(), approaches['endtoend'].weights)
+    np.save(approaches['endtoend'].curve_val, np.array(val_accs))
+    np.save(approaches['endtoend'].curve_train, np.array(train_accs))
 
 
 # ========================================================================
