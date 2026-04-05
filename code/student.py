@@ -323,7 +323,48 @@ class CropRotationDataset(Dataset):
         #    self.train_loader = DataLoader(self, batch_size=batch_size,
         #                                  shuffle=True, num_workers=0)
 
-        raise NotImplementedError("TODO: implement CropRotationDataset.__init__")
+        self.num_crops = num_crops
+        self.crop_size = crop_size
+        self.rotation = rotation
+        self.batch_size = batch_size
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.images = []
+        self.labels = []
+
+        entries = sorted(os.listdir(data_dir))
+        subdirs = [d for d in entries if os.path.isdir(os.path.join(data_dir, d))]
+
+        if rotation:
+            self.classes = ['0', '90', '180', '270']
+            self.num_classes = 4
+        else:
+            self.classes = subdirs
+            self.num_classes = len(self.classes)
+
+        to_tensor = transforms.ToTensor()
+
+        if len(subdirs) > 0:
+            for class_idx, class_name in enumerate(subdirs):
+                class_dir = os.path.join(data_dir, class_name)
+                for fname in sorted(os.listdir(class_dir)):
+                    path = os.path.join(class_dir, fname)
+                    if os.path.isfile(path):
+                        img = Image.open(path).convert('RGB')
+                        img = to_tensor(img).to(self.device)
+                        self.images.append(img)
+                        self.labels.append(class_idx)
+        else:
+            for fname in entries:
+                path = os.path.join(data_dir, fname)
+                if os.path.isfile(path):
+                    img = Image.open(path).convert('RGB')
+                    img = to_tensor(img).to(self.device)
+                    self.images.append(img)
+                    self.labels.append(0)
+
+        self.train_loader = DataLoader(self, batch_size=batch_size, shuffle=True, num_workers=0)
+
 
     def __len__(self):
         return self.num_crops
@@ -342,7 +383,35 @@ class CropRotationDataset(Dataset):
         # 3. Add any other augmentations that might help.
         # 4. Define the label.
 
-        raise NotImplementedError("TODO: implement CropRotationDataset.__getitem__")
+        image_idx = torch.randint(0, len(self.images), (1,)).item()
+        image = self.images[image_idx]
+
+        _, h, w = image.shape
+        if h < self.crop_size or w < self.crop_size:
+            new_h = max(h, self.crop_size)
+            new_w = max(w, self.crop_size)
+            image = nn.functional.interpolate(
+                image.unsqueeze(0),
+                size=(new_h, new_w),
+                mode='bilinear',
+                align_corners=False
+            ).squeeze(0)
+            _, h, w = image.shape
+
+        top = torch.randint(0, h - self.crop_size + 1, (1,)).item()
+        left = torch.randint(0, w - self.crop_size + 1, (1,)).item()
+        crop = image[:, top:top + self.crop_size, left:left + self.crop_size]
+
+        if torch.rand(1).item() < 0.5:
+            crop = torch.flip(crop, dims=[2])
+
+        if self.rotation:
+            label = torch.randint(0, 4, (1,)).item()
+            crop = torch.rot90(crop, k=label, dims=[1, 2])
+        else:
+            label = self.labels[image_idx]
+
+        return crop, label
 
 
 # Part B: Design your pretraining encoder
@@ -363,11 +432,29 @@ class PretrainingEncoder(nn.Module):
         #      We use 11 x 11 kernels for the first layer to make this easily visible.
         #    - End with AdaptiveAvgPool2d(1) so output shape is (batch, channels, 1, 1)
 
-        raise NotImplementedError
+        super().__init__()
+        self.out_dim = 256
+        self.layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=11, stride=4, padding=2),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1)
+        )
 
     def forward(self, x):
         # TODO
-        raise NotImplementedError
+        return self.layers(x)
 
 # Part C: Rotation pretraining
 #
@@ -398,7 +485,40 @@ def t1_rotation(rotation_data, device, approaches):
 
     #     7. Save encoder.state_dict() to approaches['rotation'].weights
     #
-    pass
+    torch.manual_seed(BANNER_ID)
+
+    encoder = PretrainingEncoder().to(device)
+    model = nn.Sequential(
+        encoder,
+        nn.Flatten(1),
+        nn.Linear(encoder.out_dim, 4)
+    ).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=hp.ROTATION_LR)
+    loss = nn.CrossEntropyLoss()
+
+    callback = make_filter_callback(
+        encoder,
+        'results/filter_frames_rotation',
+        'results/conv1_filters_rotation.png'
+    )
+
+    train_accs, _ = train_loop(
+        model,
+        rotation_data.train_loader,
+        optimizer,
+        loss,
+        hp.ROTATION_EPOCHS,
+        device,
+        tasklabel='rotation',
+        on_epoch_end=callback
+    )
+
+    make_filter_video('results/filter_frames_rotation', 'results/filters_rotation.mp4')
+    make_filter_video('results/filter_frames_rotation_delta', 'results/filters_rotation_delta.mp4')
+
+    np.save(approaches['rotation'].curve_train, np.array(train_accs))
+    torch.save(encoder.state_dict(), approaches['rotation'].weights)
 
 # ========================================================================
 #  TASK 2: Transfer evaluation
