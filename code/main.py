@@ -57,8 +57,7 @@ def parse_args():
                                  't1_rotation',
                                  't1_classify',      # Extra credit
                                  't1_ec_pretrain',   # Extra credit
-                                 't2_transfer',
-                                 'plot'])
+                                 't2_transfer'])
     parser.add_argument('--data', default=os.path.join('..', 'data'))
     return parser.parse_args()
 
@@ -116,42 +115,3 @@ if __name__ == '__main__':
     #
     elif args.task == 't1_ec_pretrain':
         t1_ec_pretrain(device, APPROACHES)
-
-    elif args.task == 'plot':
-        import numpy as np
-        import matplotlib.pyplot as plt
-
-        train_end = np.load('results/train_endtoend.npy')
-        val_end = np.load('results/val_endtoend.npy')
-
-        plt.figure()
-        plt.plot(range(1, len(train_end) + 1), train_end, label='Train')
-        plt.plot(range(1, len(val_end) + 1), val_end, label='Val')
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy')
-        plt.title('Task 0: End-to-End Training')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig('results/task0_training_curve.png')
-        plt.close()
-
-        val_frozen_random = np.load('results/val_frozen_random.npy')
-        val_frozen_pretrained = np.load('results/val_frozen_pretrained.npy')
-        val_finetune = np.load('results/val_finetune.npy')
-
-        plt.figure()
-        plt.plot(range(1, len(val_end) + 1), val_end, label='From scratch')
-        plt.plot(range(1, len(val_frozen_random) + 1), val_frozen_random, label='Frozen random')
-        plt.plot(range(1, len(val_frozen_pretrained) + 1), val_frozen_pretrained, label='Frozen pretrained')
-        plt.plot(range(1, len(val_finetune) + 1), val_finetune, label='Finetune')
-        plt.xlabel('Epoch')
-        plt.ylabel('Validation accuracy')
-        plt.title('Task 2: Transfer Comparison')
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig('results/task2_transfer_comparison.png')
-        plt.close()
-
-        print('Saved:')
-        print('results/task0_training_curve.png')
-        print('results/task2_transfer_comparison.png')
