@@ -564,7 +564,85 @@ def t2_transfer(classify_15scenes_data, device, approaches):
     #        - Save train/val accuracies to approaches['finetune'].curve_train / .curve_val
     #        - Save model.state_dict() to approaches['finetune'].weights
 
-    pass
+    num_classes = classify_15scenes_data.num_classes
+
+    encoder = PretrainingEncoder().to(device)
+    for p in encoder.parameters():
+        p.requires_grad = False
+    encoder.eval()
+    model = nn.Sequential(
+        encoder,
+        nn.Flatten(1),
+        nn.Linear(encoder.out_dim, num_classes)
+    ).to(device)
+    optimizer = torch.optim.Adam(model[-1].parameters(), lr=hp.TRANSFER_HEAD_LR)
+    loss = nn.CrossEntropyLoss()
+    train_accs, val_accs = train_loop(
+        model,
+        classify_15scenes_data.train_loader,
+        optimizer,
+        loss,
+        hp.TRANSFER_EPOCHS,
+        device,
+        val_loader=classify_15scenes_data.val_loader,
+        tasklabel='frozen_random'
+    )
+    np.save(approaches['frozen_random'].curve_train, np.array(train_accs))
+    np.save(approaches['frozen_random'].curve_val, np.array(val_accs))
+    torch.save(model.state_dict(), approaches['frozen_random'].weights)
+
+    encoder = PretrainingEncoder().to(device)
+    encoder.load_state_dict(torch.load(approaches['rotation'].weights, map_location=device))
+    for p in encoder.parameters():
+        p.requires_grad = False
+    encoder.eval()
+    model = nn.Sequential(
+        encoder,
+        nn.Flatten(1),
+        nn.Linear(encoder.out_dim, num_classes)
+    ).to(device)
+    optimizer = torch.optim.Adam(model[-1].parameters(), lr=hp.TRANSFER_HEAD_LR)
+    loss = nn.CrossEntropyLoss()
+    train_accs, val_accs = train_loop(
+        model,
+        classify_15scenes_data.train_loader,
+        optimizer,
+        loss,
+        hp.TRANSFER_EPOCHS,
+        device,
+        val_loader=classify_15scenes_data.val_loader,
+        tasklabel='frozen_pretrained'
+    )
+    np.save(approaches['frozen_pretrained'].curve_train, np.array(train_accs))
+    np.save(approaches['frozen_pretrained'].curve_val, np.array(val_accs))
+    torch.save(model.state_dict(), approaches['frozen_pretrained'].weights)
+
+    encoder = PretrainingEncoder().to(device)
+    encoder.load_state_dict(torch.load(approaches['rotation'].weights, map_location=device))
+    head = nn.Linear(encoder.out_dim, num_classes).to(device)
+    model = nn.Sequential(
+        encoder,
+        nn.Flatten(1),
+        head
+    ).to(device)
+    optimizer = torch.optim.Adam([
+        {'params': encoder.parameters(), 'lr': hp.TRANSFER_ENCODER_LR},
+        {'params': head.parameters(), 'lr': hp.TRANSFER_HEAD_LR}
+    ])
+    loss = nn.CrossEntropyLoss()
+    train_accs, val_accs = train_loop(
+        model,
+        classify_15scenes_data.train_loader,
+        optimizer,
+        loss,
+        hp.TRANSFER_EPOCHS,
+        device,
+        val_loader=classify_15scenes_data.val_loader,
+        tasklabel='finetune'
+    )
+    np.save(approaches['finetune'].curve_train, np.array(train_accs))
+    np.save(approaches['finetune'].curve_val, np.array(val_accs))
+    torch.save(model.state_dict(), approaches['finetune'].weights)
 
 
 # Extra Credit: Classification pretraining
