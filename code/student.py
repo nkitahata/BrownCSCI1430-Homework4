@@ -431,22 +431,20 @@ class PretrainingEncoder(nn.Module):
         #      We use 11 x 11 kernels for the first layer to make this easily visible.
         #    - End with AdaptiveAvgPool2d(1) so output shape is (batch, channels, 1, 1)
 
-        super().__init__()
         self.out_dim = 256
         self.layers = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=11, stride=4, padding=2),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(3, 32, kernel_size=11, stride=2, padding=5),
             nn.ReLU(),
             nn.MaxPool2d(2),
+
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
+
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d(1)
         )
