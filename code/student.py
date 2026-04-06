@@ -402,13 +402,12 @@ class CropRotationDataset(Dataset):
         left = torch.randint(0, w - self.crop_size + 1, (1,)).item()
         crop = image[:, top:top + self.crop_size, left:left + self.crop_size]
 
-        if torch.rand(1).item() < 0.5:
-            crop = torch.flip(crop, dims=[2])
-
         if self.rotation:
             label = torch.randint(0, 4, (1,)).item()
             crop = torch.rot90(crop, k=label, dims=[1, 2])
         else:
+            if torch.rand(1).item() < 0.5:
+                crop = torch.flip(crop, dims=[2])
             label = self.labels[image_idx]
 
         return crop, label
